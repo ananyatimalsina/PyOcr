@@ -44,7 +44,7 @@ if update == "True":
     config.set("Settings", "update", "False")
 
     with open("config.ini", "w") as configfile:
-        config.write(configfile)
+        configfile.write(config)
 
 def btn_clicked():
     fname = entry0.get()
