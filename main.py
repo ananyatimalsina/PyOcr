@@ -1,130 +1,238 @@
-import shutil
 from tkinter import *
+from tkinter import messagebox
+from tkinter.ttk import Progressbar
 from tkinter import filedialog
 import requests
 from configparser import ConfigParser
-from tkinter import messagebox
 import pytesseract
 import os
-import zipfile
-import pdf2image
-from PyPDF2 import PdfFileMerger
+from requests_html import HTML
+import threading
+import ocrmypdf
 
 config = ConfigParser()
 
 try:
     config.read("config.ini")
     update = config["Settings"]["update"]
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    popp_path = r'popp/' + os.listdir("popp")[0] + r'/Library/bin'
 
 except Exception as e:
-    messagebox.showerror("Config file Error!", "Config File Is Corrupted or does not Exist!" + str(e))
+    print("Config File Is Corrupted or does not Exist! Error: " + str(e))
 
 if update == "True":
-    if os.path.isdir("popp"):
-        shutil.rmtree("popp")
+    print("Updating packages.. Please be patient")
+    print("Requesting tesseract urls..")
+    tess_r = requests.get("https://github.com/UB-Mannheim/tesseract/wiki")
+    tess_r = HTML(html=str(tess_r.content))
+    tess_url = tess_r.links
+    
+    print("Requesting gostscript urls..")
+    ghost_r = requests.get("https://github.com/ArtifexSoftware/ghostpdl-downloads/releases")
+    ghost_r = HTML(html=str(ghost_r.content))
+    ghost_url = ghost_r.links
 
-    tess_url = "https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-v5.0.1.20220118.exe"
+    versions = []
+    links = []
+
+    print("Getting latest tesseract version")
+
+    for i in tess_url:
+        if "tesseract" in i and "w64" in i:
+            links.append(i)
+            versions.append(int(i.split("v")[1][:5].replace(".", "")))
+
+    tess_url = links[versions.index(max(versions))]
+    
     r_tess = requests.get(tess_url)
+
+    versions = []
+    links = []
+
+    print("Getting latest gostscript version")
+
+    for i in ghost_url:
+        if "gs" in i and "w64" in i:
+            try:
+                versions.append(int(i.split("gs")[2].split("w")[0]))
+            except:
+                pass
+            links.append("https://github.com" + i)
+    
+    ghost_url = links[versions.index(max(versions))]
+    
+    r_ghost = requests.get(ghost_url)
+
+    print("Saving Files")
+    
     open("tesseract.exe", "wb").write(r_tess.content)
+    open("ghostscript.exe", "wb").write(r_ghost.content)
 
-    popp_url = "https://github.com/oschwartz10612/poppler-windows/releases/download/v22.01.0-0/Release-22.01.0-0.zip"
-    r_popp = requests.get(popp_url)
-    open("popp.zip", "wb").write(r_popp.content)
-
-    with zipfile.ZipFile("popp.zip", "r") as zf:
-        zf.extractall("popp")
+    print("Almost done! Please go through the Install steps now.")
 
     os.system("tesseract.exe")
+    os.system("ghostscript.exe")
+
+    print("Removing Files")
 
     os.remove("tesseract.exe")
-    os.remove("popp.zip")
+    os.remove("ghostscript.exe")
 
     config.set("Settings", "update", "False")
 
     with open("config.ini", "w") as configfile:
         config.write(configfile)
 
-def btn_clicked():
-    fname = entry0.get()
-    extention = fname.split(".")
+    print("Sucessfully downloaded and installed the Following Packages: Tesseract, Ghostscript. Please make sure to add them to Path. Also restart you PC after Path Change")
 
-    if extention[-1] != "pdf":
-        if entry2.get() != "":
-            pdf = pytesseract.image_to_pdf_or_hocr(fname, entry2.get(), extension='pdf')
+def temp_bind(event):
+    pass
+
+def disable_widgets():
+    select_path_main["state"] = "disabled"
+    select_path_main.bind("<1>", temp_bind)
+    preview["state"] = "disabled"
+    language["state"] = "disabled"
+    output["state"] = "disabled"
+    output.bind("<1>", temp_bind)
+    export_main["state"] = "disabled"
+
+def enable_wdgets():
+    select_path_main["state"] = "normal"
+    select_path_main.bind("<1>", select_input)
+    preview["state"] = "normal"
+    language["state"] = "normal"
+    output["state"] = "normal"
+    output.bind("<1>", select_output)
+    export_main["state"] = "normal"
+
+def export():
+    ofname = output.get()
+    fname = select_path_main.get()
+
+    if fname == "":
+        messagebox.showerror("Empty Input!", "No input File provided!")
+        return
+
+    extention = fname.split(".")[-1]
+    try:
+        extentionof = ofname.split(".")[-1]
+    except:
+        pass
+    def convert_pdf():
+        progress.place(x=305, y=250)
+        progress.start()
+
+        if language.get() == "":
+            ocrmypdf.ocr(fname, ofname, deskew=True)
 
         else:
-            pdf = pytesseract.image_to_pdf_or_hocr(fname, extension='pdf')
-        
-        with open('Exports/output.pdf', 'w+b') as f:
+            ocrmypdf.ocr(fname, ofname, deskew=True, language=language.get())
+
+        progress.place_forget()
+        progress.stop()
+        enable_wdgets()
+        messagebox.showinfo("Exported PDF!", "PDF has been sucesfully exported and was saved to: " + ofname)
+
+    def convert_pdf_non():
+        progress.place(x=305, y=250)
+        progress.start()
+
+        if language.get() == "":
+            pdf = pytesseract.image_to_pdf_or_hocr(fname, extension='pdf', config='--psm 6')
+
+        else:
+            pdf = pytesseract.image_to_pdf_or_hocr(fname, extension='pdf', lang=language.get(), config='--psm 6')
+
+        with open(ofname, 'w+b') as f:
             f.write(pdf)
 
-    else:
-        images = pdf2image.convert_from_path(fname, poppler_path=popp_path)
-        c = 0
-        pdfs = []
-        for i in images:
-            if entry2.get() != "":
-                pdf = pytesseract.image_to_pdf_or_hocr(i, entry2.get(), extension='pdf')
+        progress.place_forget()
+        progress.stop()
+        enable_wdgets()
+        messagebox.showinfo("Exported PDF!", "PDF has been sucesfully exported and was saved to: " + ofname)
 
-            else:
-                pdf = pytesseract.image_to_pdf_or_hocr(i, extension='pdf')
-
-            with open('Exports/output' + str(c) + '.pdf', 'w+b') as f:
-                f.write(pdf)
-                pdfs.append('Exports/output' + str(c) + '.pdf')
+    def convert_txt():
+        progress.place(x=305, y=250)
+        progress.start()
         
-        merger = PdfFileMerger()
+        with open(ofname, "w") as f:
+            f.write(preview.get())
 
-        for pdf in pdfs:
-            merger.append(pdf)
+        progress.place_forget()
+        progress.stop()
+        enable_wdgets()
+        messagebox.showinfo("Exported Text File!", "Text File has been sucesfully exported and was saved to: " + ofname)
 
-        merger.write("Exports/output.pdf")
-        merger.close()
+    if output.get() == "" and extention == "pdf":
+        ofname = select_output("NORMAL", "PDF")
+        extentionof = ofname.split(".")[-1]
 
-        for pdf in pdfs:
-            os.remove(pdf)
+    elif extention == "pdf" and extentionof != "pdf":
+        ofname = select_output("NORMAL", "PDF")
+        extentionof = ofname.split(".")[-1]
 
-    messagebox.showinfo("Succesfully Exported Document!", "Succesfully finished exporting your document! Its located in Output.pdf")
+    else:
+        ofname = select_output("NORMAL")
+        extentionof = ofname.split(".")[-1]
+
+    if extentionof == "pdf" and extention == "pdf":
+        disable_widgets()
+        threading.Thread(target=convert_pdf, daemon=True).start()
+
+    elif extentionof == "pdf" and extention != "pdf":
+        disable_widgets()
+        threading.Thread(target=convert_pdf_non, daemon=True).start()
+
+    else:
+        disable_widgets()
+        threading.Thread(target=convert_txt, daemon=True).start()
+
+def select_output(event, mode = "NORMAL"):
+    if mode == "NORMAL":
+        ofname = filedialog.askopenfilename(title="Select Output File", filetypes=[("TextFiles and Documents", ".txt .pdf")])
+
+    elif mode == "PDF":
+        ofname = filedialog.askopenfilename(title="Select Output File", filetypes=[("Documents", ".pdf")])
+
+    output.delete(0,"end")
+    output.insert(0, ofname)
+
+    return ofname
 
 def select_input(event):
-    fname = filedialog.askopenfilename(title="Select Input Image", filetypes=[("Images and Documents", ".png .jpg .jpeg .pdf")])
+    fname = filedialog.askopenfilename(title="Select Input File", filetypes=[("Images and Documents", ".png .jpg .jpeg .pdf")])
 
-    if fname != "":
+    def convert():
+        progress.place(x=305, y=250)
+        progress.start()
 
         extention = fname.split(".")
-        
-        if extention[-1] != "pdf":
-            if entry2.get() != "":
-                text = pytesseract.image_to_string(fname, entry2.get(), config='--psm 6')
+        extention = extention[-1]
+            
+        if extention != "pdf":
+            if language.get() != "":
+                text = pytesseract.image_to_string(fname, language.get(), config='--psm 6')
 
             else:
                 text = pytesseract.image_to_string(fname, config='--psm 6')
 
-            entry0.delete(0,"end")
-            entry0.insert(0, fname)
-            entry1.delete(1.0,"end")
-            entry1.insert(1.0, text)
-
         else:
-            images = pdf2image.convert_from_path(fname, poppler_path=popp_path)
-            exported_images = []
+            export()
 
-            for i in images:
-                if entry2.get() != "":
-                    exported_images.append(pytesseract.image_to_string(i, entry2.get(), config='--psm 6'))
+        progress.place_forget()
+        progress.stop()
 
-                else:
-                    exported_images.append(pytesseract.image_to_string(i, config='--psm 6'))
+        enable_wdgets()
 
-            exported_images = "\nPAGE END\n".join(exported_images)
+        preview.delete(1.0,"end")
+        preview.insert(1.0, text)
 
-            entry0.delete(0,"end")
-            entry0.insert(0, fname)
-            entry1.delete(1.0,"end")
-            entry1.insert(1.0, exported_images)
-            
+    if fname !="":
+        select_path_main.delete(0,"end")
+        select_path_main.insert(0, fname)
+        disable_widgets()
+        threading.Thread(target=convert, daemon=True).start()
+
 
 window = Tk()
 
@@ -143,70 +251,89 @@ canvas = Canvas(
     relief = "ridge")
 canvas.place(x = 0, y = 0)
 
-entry0_img = PhotoImage(file = f"assets/img_textBox0.png")
-entry0_bg = canvas.create_image(
+select_path_main_img = PhotoImage(file = f"assets/select_path_main.png")
+select_path_main_bg = canvas.create_image(
     350.0, 51.0,
-    image = entry0_img)
+    image = select_path_main_img)
 
-entry0 = Entry(
+select_path_main = Entry(
     bd = 0,
     bg = "#ffffff",
     highlightthickness = 0)
 
-entry0.place(
+select_path_main.place(
     x = 50, y = 34,
     width = 600,
     height = 32)
 
-entry0.bind("<1>", select_input)
+select_path_main.bind("<1>", select_input)
 
-entry1_img = PhotoImage(file = f"assets/img_textBox1.png")
-entry1_bg = canvas.create_image(
+preview_img = PhotoImage(file = f"assets/preview.png")
+preview_bg = canvas.create_image(
     350.0, 261.0,
-    image = entry1_img)
+    image = preview_img)
 
-entry1 = Text(
+preview = Text(
     bd = 0,
     bg = "#ffffff",
     highlightthickness = 0)
 
-entry1.place(
+preview.place(
     x = 50, y = 76,
     width = 600,
     height = 368)
 
-entry2_img = PhotoImage(file = f"assets/img_textBox2.png")
-entry2_bg = canvas.create_image(
+language_img = PhotoImage(file = f"assets/language.png")
+language_bg = canvas.create_image(
     211.5, 471.5,
-    image = entry2_img)
+    image = language_img)
 
-entry2 = Entry(
+language = Entry(
     bd = 0,
     bg = "#ffffff",
     highlightthickness = 0)
 
-entry2.place(
+language.place(
     x = 154, y = 454,
     width = 115,
     height = 33)
 
-img0 = PhotoImage(file = f"assets/img0.png")
-b0 = Button(
-    image = img0,
+output_img = PhotoImage(file = f"assets/output.png")
+output_bg = canvas.create_image(
+    580.0, 471.5,
+    image = output_img)
+
+output = Entry(
+    bd = 0,
+    bg = "#ffffff",
+    highlightthickness = 0)
+
+output.place(
+    x = 510, y = 454,
+    width = 140,
+    height = 33)
+
+output.bind("<1>", select_output)
+
+export_main_img = PhotoImage(file = f"assets/export_main.png")
+export_main = Button(
+    image = export_main_img,
     borderwidth = 0,
     highlightthickness = 0,
-    command = btn_clicked,
+    command = export,
     relief = "flat")
 
-b0.place(
+export_main.place(
     x = 292, y = 454,
     width = 115,
     height = 35)
 
-background_img = PhotoImage(file = f"assets/background.png")
+background_img = PhotoImage(file = f"assets/background_main.png")
 background = canvas.create_image(
-    214.5, 244.5,
+    277.5, 244.5,
     image=background_img)
+
+progress = Progressbar(orient=HORIZONTAL, length=100, mode='indeterminate')
 
 window.resizable(False, False)
 window.mainloop()
