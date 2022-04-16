@@ -82,7 +82,7 @@ if update == "True":
     with open("config.ini", "w") as configfile:
         config.write(configfile)
 
-    print("Sucessfully downloaded and installed the Following Packages: Tesseract, Ghostscript. Please make sure to add them to Path. Also restart you PC after Path Change")
+    print("Sucessfully downloaded and installed the Following Packages: Tesseract, Ghostscript. Please make sure to add them to Path. Also restart your PC after Path Change")
 
 def temp_bind(event):
     pass
